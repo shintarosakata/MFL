@@ -1,3 +1,8 @@
+mod lexer;
+use lexer::*;
+
 fn main() {
-    println!("Hello, world!");
+    let mut lexer = Lexer::new("var world\n");
+
+    lexer.for_each(|item| println!("{:?}", item));
 }
