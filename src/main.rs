@@ -13,6 +13,9 @@ use inkwell::OptimizationLevel;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
+use std::fs::File;
+use std::io::prelude::*;
+
 // 新しい行を出力せずにprintとflushに使用されるマクロ
 macro_rules! print_flush {
     ( $( $x:expr ),* ) => {
@@ -39,7 +42,74 @@ pub extern "C" fn printd(x: f64) -> f64 {
 static EXTERNAL_FNS: [extern "C" fn(f64) -> f64; 2] = [putchard, printd];
 
 /// Replのエントリーポイント
-pub fn main() {
+fn main() {
+    let mut repl = false;
+    for arg in std::env::args() {
+        match arg.as_str() {
+            "-a" => repl = true,
+            _ => (),
+        }
+    }
+
+    if repl {
+        run_repl();
+    } else {
+        compile();
+    }
+}
+
+fn compile() {
+    let context = Context::create();
+    let module = context.create_module("repl");
+    let builder = context.create_builder();
+
+    // Create FPM
+    let fpm = PassManager::create(&module);
+
+    fpm.add_instruction_combining_pass();
+    fpm.add_reassociate_pass();
+    fpm.add_gvn_pass();
+    fpm.add_cfg_simplification_pass();
+    fpm.add_basic_alias_analysis_pass();
+    fpm.add_promote_memory_to_register_pass();
+    fpm.add_instruction_combining_pass();
+    fpm.add_reassociate_pass();
+
+    fpm.initialize();
+
+    // ファイルが見つかりませんでした
+    let mut f = File::open("input.ks").expect("file not found");
+
+    let mut input = String::new();
+    f.read_to_string(&mut input)
+        // ファイルの読み込み中に問題がありました
+        .expect("something went wrong reading the file");
+
+    // 優先順位mapの生成
+    let mut prec = HashMap::with_capacity(6);
+
+    prec.insert('=', 2);
+    prec.insert('<', 10);
+    prec.insert('+', 20);
+    prec.insert('-', 20);
+    prec.insert('*', 40);
+    prec.insert('/', 40);
+
+    // make module
+    let module = context.create_module("main");
+
+    match Parser::new(input, &mut prec).parse() {
+        Ok(fun) => {
+            Compiler::compile(&context, &builder, &fpm, &module, &fun).unwrap();
+        }
+        Err(err) => {
+            println!("!> Error parsing expression: {}", err);
+        }
+    };
+    module.print_to_file("main.ll").unwrap();
+}
+
+fn run_repl() {
     // use self::inkwell::support::add_symbol;
     let mut display_lexer_output = false;
     let mut display_parser_output = false;
